@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>WebAuthn 示例</title>
+  <script src="https://unpkg.com/@simplewebauthn/browser/dist/bundle/index.umd.min.js"></script>
+</head>
+<body>
+  <h1>WebAuthn 无密码登录示例</h1>
+
+  <div>
+    <h2>注册</h2>
+    <input type="text" id="reg-username" placeholder="用户名" />
+    <button onclick="register()">注册通行密钥</button>
+  </div>
+
+  <div>
+    <h2>登录</h2>
+    <input type="text" id="auth-username" placeholder="用户名" />
+    <button onclick="authenticate()">登录</button>
+  </div>
+
+  <div id="message"></div>
+
+  <script>
+    const apiBase = 'http://localhost:3000';
+
+    async function register() {
+      const username = document.getElementById('reg-username').value;
+      if (!username) return alert('请输入用户名');
+
+      try {
+        // 1. 从服务器获取注册选项
+        const optionsRes = await fetch(`${apiBase}/generate-registration-options`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username }),
+        });
+        const options = await optionsRes.json();
+
+        // 2. 调用浏览器 API 创建凭证
+        const attestationResponse = await SimpleWebAuthnBrowser.startRegistration(options);
+
+        // 3. 将响应发送到服务器验证
+        const verifyRes = await fetch(`${apiBase}/verify-registration`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, attestationResponse }),
+        });
+        const verifyResult = await verifyRes.json();
+        if (verifyResult.verified) {
+          document.getElementById('message').innerText = '注册成功！';
+        } else {
+          document.getElementById('message').innerText = '注册失败：' + (verifyResult.error || '未知错误');
+        }
+      } catch (error) {
+        console.error(error);
+        document.getElementById('message').innerText = '注册出错：' + error.message;
+      }
+    }
+
+    async function authenticate() {
+      const username = document.getElementById('auth-username').value;
+      if (!username) return alert('请输入用户名');
+
+      try {
+        // 1. 获取认证选项
+        const optionsRes = await fetch(`${apiBase}/generate-authentication-options`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username }),
+        });
+        const options = await optionsRes.json();
+
+        // 2. 调用浏览器 API 获取断言
+        const assertionResponse = await SimpleWebAuthnBrowser.startAuthentication(options);
+
+        // 3. 发送给服务器验证
+        const verifyRes = await fetch(`${apiBase}/verify-authentication`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, assertionResponse }),
+        });
+        const verifyResult = await verifyRes.json();
+        if (verifyResult.verified) {
+          document.getElementById('message').innerText = '登录成功！';
+        } else {
+          document.getElementById('message').innerText = '登录失败：' + (verifyResult.error || '未知错误');
+        }
+      } catch (error) {
+        console.error(error);
+        document.getElementById('message').innerText = '登录出错：' + error.message;
+      }
+    }
+  </script>
+</body>
+</html>
