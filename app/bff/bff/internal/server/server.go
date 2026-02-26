@@ -351,7 +351,11 @@ func (s *Server) Initialize() error {
 		mtproto.RegisterRPCPasskeyServer(
 			grpcServer,
 			passkeyhelper.New(passkeyhelper.Config{
-				RpcServerConf: c.RpcServerConf,
+				RpcServerConf:     c.RpcServerConf,
+				KV:                c.KV,
+				AuthsessionClient: c.AuthSessionClient,
+				UserClient:        c.BizServiceClient,
+				DcId:              1,
 			}))
 	})
 

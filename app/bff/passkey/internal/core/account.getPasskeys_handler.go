@@ -20,13 +20,42 @@ package core
 
 import (
 	"github.com/teamgram/proto/mtproto"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 // AccountGetPasskeys
 // account.getPasskeys#ea1f0c52 = account.Passkeys;
 func (c *PasskeyCore) AccountGetPasskeys(in *mtproto.TLAccountGetPasskeys) (*mtproto.Account_Passkeys, error) {
-	// TODO: not impl
-	c.Logger.Errorf("account.getPasskeys blocked, License key from https://teamgram.net required to unlock enterprise features.")
+	if c.MD == nil || c.MD.UserId == 0 {
+		c.Logger.Errorf("account.getPasskeys - not logged in")
+		return nil, status.Error(mtproto.ErrUnauthorized, "AUTH_KEY_UNREGISTERED")
+	}
 
-	return nil, mtproto.ErrEnterpriseIsBlocked
+	ids, err := c.svcCtx.Dao.ListUserPasskeyIds(c.ctx, c.MD.UserId)
+	if err != nil {
+		c.Logger.Errorf("account.getPasskeys - list ids: %v", err)
+		return nil, err
+	}
+
+	var list []*mtproto.Passkey
+	for _, id := range ids {
+		cred, err := c.svcCtx.Dao.GetPasskey(c.ctx, id)
+		if err != nil {
+			continue
+		}
+		p := &mtproto.Passkey{
+			Id:              cred.Id,
+			Name:            "Google Password Manager",
+			Date:            cred.Date,
+			LastUsageDate:   &wrapperspb.Int32Value{Value: cred.LastUsageDate},
+			SoftwareEmojiId: nil, // mtproto.MakeFlagsInt64(4974455483281704470),
+		}
+		if cred.LastUsageDate == 0 {
+			p.LastUsageDate = nil
+		}
+		list = append(list, mtproto.MakeTLPasskey(p).To_Passkey())
+	}
+
+	return mtproto.MakeTLAccountPasskeys(&mtproto.Account_Passkeys{Passkeys: list}).To_Account_Passkeys(), nil
 }

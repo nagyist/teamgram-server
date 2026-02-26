@@ -20,13 +20,26 @@ package core
 
 import (
 	"github.com/teamgram/proto/mtproto"
+	"google.golang.org/grpc/status"
 )
 
 // AccountDeletePasskey
 // account.deletePasskey#f5b5563f id:string = Bool;
 func (c *PasskeyCore) AccountDeletePasskey(in *mtproto.TLAccountDeletePasskey) (*mtproto.Bool, error) {
-	// TODO: not impl
-	c.Logger.Errorf("account.deletePasskey blocked, License key from https://teamgram.net required to unlock enterprise features.")
+	if c.MD == nil || c.MD.UserId == 0 {
+		c.Logger.Errorf("account.deletePasskey - not logged in")
+		return nil, status.Error(mtproto.ErrUnauthorized, "AUTH_KEY_UNREGISTERED")
+	}
 
-	return nil, mtproto.ErrEnterpriseIsBlocked
+	if in.GetId() == "" {
+		return nil, status.Error(mtproto.ErrBadRequest, "PASSKEY_ID_INVALID")
+	}
+
+	err := c.svcCtx.Dao.DeletePasskey(c.ctx, in.GetId(), c.MD.UserId)
+	if err != nil {
+		c.Logger.Errorf("account.deletePasskey - %v", err)
+		return nil, status.Error(mtproto.ErrBadRequest, "PASSKEY_NOT_FOUND")
+	}
+
+	return mtproto.BoolTrue, nil
 }

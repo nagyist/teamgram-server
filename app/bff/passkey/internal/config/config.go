@@ -19,9 +19,14 @@
 package config
 
 import (
+	"github.com/zeromicro/go-zero/core/stores/kv"
 	"github.com/zeromicro/go-zero/zrpc"
 )
 
 type Config struct {
 	zrpc.RpcServerConf
+	KV                kv.KvConf
+	AuthsessionClient zrpc.RpcClientConf
+	UserClient        zrpc.RpcClientConf
+	DcId              int32 `json:",optional"` // 当前 DC ID，用于 passkey userHandle (dcId:userId)
 }

@@ -596,6 +596,13 @@ func (c *session) onRpcResult(ctx context.Context, rpcResult *rpcApiMessage) {
 				c.sessList.cb.changeAuthState(ctx, mtproto.AuthStateNormal, authAuthorization.GetUser().GetId())
 			}
 		}
+	case *mtproto.TLAuthFinishPasskeyLogin:
+		if rpcErr == nil {
+			authAuthorization, _ := rpcResult.rpcResult.Result.(*mtproto.Auth_Authorization)
+			if authAuthorization != nil && authAuthorization.GetPredicateName() == mtproto.Predicate_auth_authorization {
+				c.sessList.cb.changeAuthState(ctx, mtproto.AuthStateNormal, authAuthorization.GetUser().GetId())
+			}
+		}
 	case *mtproto.TLUpdatesGetState:
 		hasCanSync = true
 		// c.canSync = true

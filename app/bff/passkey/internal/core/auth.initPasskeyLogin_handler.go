@@ -25,8 +25,30 @@ import (
 // AuthInitPasskeyLogin
 // auth.initPasskeyLogin#518ad0b7 api_id:int api_hash:string = auth.PasskeyLoginOptions;
 func (c *PasskeyCore) AuthInitPasskeyLogin(in *mtproto.TLAuthInitPasskeyLogin) (*mtproto.Auth_PasskeyLoginOptions, error) {
-	// TODO: not impl
-	c.Logger.Errorf("auth.initPasskeyLogin blocked, License key from https://teamgram.net required to unlock enterprise features.")
+	authKeyId := int64(0)
+	if c.MD != nil {
+		authKeyId = c.MD.PermAuthKeyId
+	}
 
-	return nil, mtproto.ErrEnterpriseIsBlocked
+	challenge, err := RandomChallenge()
+	if err != nil {
+		c.Logger.Errorf("auth.initPasskeyLogin - challenge: %v", err)
+		return nil, mtproto.ErrInternalServerError
+	}
+
+	// 登录时使用空 allowCredentials，依赖客户端 resident key 发现
+	optionsJSON, err := BuildAssertionOptionsJSON(challenge, "teamgram.me", nil)
+	if err != nil {
+		c.Logger.Errorf("auth.initPasskeyLogin - options: %v", err)
+		return nil, mtproto.ErrInternalServerError
+	}
+
+	if err := c.svcCtx.Dao.SetLoginChallenge(c.ctx, authKeyId, string(challenge)); err != nil {
+		c.Logger.Errorf("auth.initPasskeyLogin - set challenge: %v", err)
+		return nil, mtproto.ErrInternalServerError
+	}
+
+	return mtproto.MakeTLAuthPasskeyLoginOptions(&mtproto.Auth_PasskeyLoginOptions{
+		Options: mtproto.MakeTLDataJSON(&mtproto.DataJSON{Data: optionsJSON}).To_DataJSON(),
+	}).To_Auth_PasskeyLoginOptions(), nil
 }

@@ -1,2 +1,18 @@
 Name: bff.passkey
 ListenOn: 0.0.0.0:27960
+DcId: 1
+
+KV:
+  - Host: localhost:6379
+
+AuthsessionClient:
+  Etcd:
+    Hosts:
+      - 127.0.0.1:2379
+    Key: service.authsession
+
+UserClient:
+  Etcd:
+    Hosts:
+      - 127.0.0.1:2379
+    Key: service.biz_service
