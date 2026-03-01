@@ -112,7 +112,7 @@ func (s *Server) OnOpen(c gnet.Conn) (out []byte, action gnet.Action) {
 	if ctx.websocket {
 		ctx.wsCodec = new(ws.WsCodec)
 	}
-	ctx.closeDate = time.Now().Unix() + 30
+	ctx.closeDate = s.CachedNow() + 30
 	c.SetContext(ctx)
 
 	return
@@ -131,6 +131,7 @@ func (s *Server) OnClose(c gnet.Conn, err error) (action gnet.Action) {
 	defer func() {
 		if ctx.wsCodec != nil {
 			ctx.wsCodec.Conn.Release()
+			ctx.wsCodec = nil
 		}
 
 		c.SetContext(nil)
@@ -172,7 +173,7 @@ func (s *Server) OnClose(c gnet.Conn, err error) (action gnet.Action) {
 // OnTraffic fires when a local socket receives data from the peer.
 func (s *Server) OnTraffic(c gnet.Conn) (action gnet.Action) {
 	ctx := c.Context().(*connContext)
-	ctx.closeDate = time.Now().Unix() + 300 + rand.Int63()%10
+	ctx.closeDate = s.CachedNow() + 300 + rand.Int63()%10
 	if ctx.ppv1 {
 		ppv1, err := c.Peek(-1)
 		if err != nil {
@@ -229,6 +230,7 @@ func (s *Server) OnTick() (delay time.Duration, action gnet.Action) {
 	}
 	delay = time.Second * 1
 	now := time.Now().Unix()
+	s.cachedNow.Store(now)
 
 	s.eng.Iterate(func(c gnet.Conn) {
 		ctx, _ := c.Context().(*connContext)

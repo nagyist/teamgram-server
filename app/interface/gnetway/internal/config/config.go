@@ -34,10 +34,11 @@ type GnetwayServer struct {
 }
 
 type GnetwayConfig struct {
-	Server     []GnetwayServer
-	Multicore  bool
-	SendBuf    int
-	ReceiveBuf int
+	Server        []GnetwayServer
+	Multicore     bool
+	SendBuf       int
+	ReceiveBuf    int
+	AuthKeyCacheM int `json:",default=10"`
 }
 
 func (c GnetwayConfig) IsWebsocket(addr string) bool {

@@ -17,6 +17,7 @@ package gnet
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 
 	"github.com/teamgram/marmota/pkg/cache"
@@ -44,6 +45,16 @@ type Server struct {
 	authSessionMgr *authSessionManager
 	svcCtx         *svc.ServiceContext
 	tickNumber     int64
+	cachedNow      atomic.Int64 // cached unix timestamp, updated every OnTick
+}
+
+// CachedNow returns the cached unix timestamp (updated every OnTick interval).
+// Falls back to time.Now() if not yet initialized.
+func (s *Server) CachedNow() int64 {
+	if n := s.cachedNow.Load(); n > 0 {
+		return n
+	}
+	return time.Now().Unix()
 }
 
 func New(svcCtx *svc.ServiceContext, c config.Config) *Server {
@@ -55,7 +66,12 @@ func New(svcCtx *svc.ServiceContext, c config.Config) *Server {
 
 	s.handshake = mustNewHandshake(c.RSAKey)
 
-	s.cache = cache.NewLRUCache(10 * 1024 * 1024) // cache capacity: 10MB
+	cacheSizeMB := c.Gnetway.AuthKeyCacheM
+	if cacheSizeMB <= 0 {
+		cacheSizeMB = 10
+	}
+	s.cache = cache.NewLRUCache(int64(cacheSizeMB) * 1024 * 1024)
+
 	s.pool = goroutine.Default()
 
 	s.c = &c
