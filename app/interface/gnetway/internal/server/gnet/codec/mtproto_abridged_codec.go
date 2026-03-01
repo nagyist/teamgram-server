@@ -48,7 +48,6 @@ func newMTProtoAbridgedCodec(crypto *AesCTR128Crypto) *AbridgedCodec {
 // Encode encodes frames upon server responses into TCP stream.
 func (c *AbridgedCodec) Encode(conn CodecWriter, msg interface{}) ([]byte, error) {
 	if msg == nil {
-		//logx.Error("conn(%s) msg is nil", conn)
 		return nil, nil
 	}
 
@@ -57,24 +56,23 @@ func (c *AbridgedCodec) Encode(conn CodecWriter, msg interface{}) ([]byte, error
 		err := fmt.Errorf("conn(%s) msg type error, only MTPRawMessage, msg: %s", conn, rm)
 		return nil, err
 	} else if rm == nil {
-		// logx.Errorf("conn(%s) msg is nil, msg: %#v", conn, msg)
 		return nil, nil
 	}
 
 	out := rm.Payload
-
-	// b := message.Encode() d
-	sb := make([]byte, 4)
-	// minus padding
 	size := len(out) / 4
 
+	var buf []byte
 	if size < 127 {
-		sb = []byte{byte(size)}
+		buf = make([]byte, 1+len(out))
+		buf[0] = byte(size)
+		copy(buf[1:], out)
 	} else {
-		binary.LittleEndian.PutUint32(sb, uint32(size<<8|127))
+		buf = make([]byte, 4+len(out))
+		binary.LittleEndian.PutUint32(buf, uint32(size<<8|127))
+		copy(buf[4:], out)
 	}
 
-	buf := append(sb, out...)
 	return c.Encrypt(buf), nil
 }
 

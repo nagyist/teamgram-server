@@ -57,18 +57,18 @@ func (c *PaddedIntermediateCodec) Encode(conn CodecWriter, msg interface{}) ([]b
 	rawMsg, ok := msg.(*mtproto.MTPRawMessage)
 	if !ok {
 		err := fmt.Errorf("msg type error, only MTPRawMessage, msg: {%v}", msg)
-		// log.Error(err.Error())
 		return nil, err
 	}
 
-	sb := make([]byte, 4)
-	size := len(rawMsg.Payload)
+	paddingLen := rand2.Int() % 16
+	buf := make([]byte, 4+len(rawMsg.Payload)+paddingLen)
+	binary.LittleEndian.PutUint32(buf, uint32(len(rawMsg.Payload)))
+	copy(buf[4:], rawMsg.Payload)
+	if paddingLen > 0 {
+		_, _ = rand.Read(buf[4+len(rawMsg.Payload):])
+	}
 
-	binary.LittleEndian.PutUint32(sb, uint32(size))
-	b := append(sb, rawMsg.Payload...)
-	b = append(b, generatePadding(rand2.Int()%16)...)
-
-	return c.Encrypt(b), nil
+	return c.Encrypt(buf), nil
 }
 
 // Decode decodes frames from TCP stream via specific implementation.

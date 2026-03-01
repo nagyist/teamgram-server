@@ -52,11 +52,10 @@ func (c *IntermediateCodec) Encode(conn CodecWriter, msg interface{}) ([]byte, e
 		return nil, err
 	}
 
-	sb := make([]byte, 4)
-	binary.LittleEndian.PutUint32(sb, uint32(len(rawMsg.Payload)))
-
-	b := append(sb, rawMsg.Payload...)
-	return c.Encrypt(b), nil
+	buf := make([]byte, 4+len(rawMsg.Payload))
+	binary.LittleEndian.PutUint32(buf, uint32(len(rawMsg.Payload)))
+	copy(buf[4:], rawMsg.Payload)
+	return c.Encrypt(buf), nil
 }
 
 // Decode decodes frames from TCP stream via specific implementation.

@@ -609,9 +609,19 @@ func (s *Server) onReqDHParams(c gnet.Conn, ctx *HandshakeStateCtx, request *mtp
 
 			// 创建aes和iv key
 			tmpAesKeyAndIV := make([]byte, 64)
-			sha1A := sha1.Sum(append(newNonce, request.ServerNonce...))
-			sha1B := sha1.Sum(append(request.ServerNonce, newNonce...))
-			sha1C := sha1.Sum(append(newNonce, newNonce...))
+			var shaBuf [64]byte // stack buffer for SHA1 input concatenation
+			// sha1(newNonce + serverNonce)
+			copy(shaBuf[:], newNonce)
+			copy(shaBuf[len(newNonce):], request.ServerNonce)
+			sha1A := sha1.Sum(shaBuf[:len(newNonce)+len(request.ServerNonce)])
+			// sha1(serverNonce + newNonce)
+			copy(shaBuf[:], request.ServerNonce)
+			copy(shaBuf[len(request.ServerNonce):], newNonce)
+			sha1B := sha1.Sum(shaBuf[:len(request.ServerNonce)+len(newNonce)])
+			// sha1(newNonce + newNonce)
+			copy(shaBuf[:], newNonce)
+			copy(shaBuf[len(newNonce):], newNonce)
+			sha1C := sha1.Sum(shaBuf[:len(newNonce)+len(newNonce)])
 			copy(tmpAesKeyAndIV, sha1A[:])
 			copy(tmpAesKeyAndIV[20:], sha1B[:])
 			copy(tmpAesKeyAndIV[40:], sha1C[:])
@@ -691,9 +701,16 @@ func (s *Server) onSetClientDHParams(c gnet.Conn, ctx *HandshakeStateCtx, reques
 
 	// 创建aes和iv key
 	tmpAesKeyAndIv := make([]byte, 64)
-	sha1A := sha1.Sum(append(ctx.NewNonce, ctx.ServerNonce...))
-	sha1B := sha1.Sum(append(ctx.ServerNonce, ctx.NewNonce...))
-	sha1C := sha1.Sum(append(ctx.NewNonce, ctx.NewNonce...))
+	var shaBuf2 [64]byte
+	copy(shaBuf2[:], ctx.NewNonce)
+	copy(shaBuf2[len(ctx.NewNonce):], ctx.ServerNonce)
+	sha1A := sha1.Sum(shaBuf2[:len(ctx.NewNonce)+len(ctx.ServerNonce)])
+	copy(shaBuf2[:], ctx.ServerNonce)
+	copy(shaBuf2[len(ctx.ServerNonce):], ctx.NewNonce)
+	sha1B := sha1.Sum(shaBuf2[:len(ctx.ServerNonce)+len(ctx.NewNonce)])
+	copy(shaBuf2[:], ctx.NewNonce)
+	copy(shaBuf2[len(ctx.NewNonce):], ctx.NewNonce)
+	sha1C := sha1.Sum(shaBuf2[:len(ctx.NewNonce)+len(ctx.NewNonce)])
 	copy(tmpAesKeyAndIv, sha1A[:])
 	copy(tmpAesKeyAndIv[20:], sha1B[:])
 	copy(tmpAesKeyAndIv[40:], sha1C[:])
@@ -887,14 +904,17 @@ func (s *Server) saveAuthKeyInfo(ctx *HandshakeStateCtx, key *mtproto.AuthKeyInf
 }
 
 func calcNewNonceHash(newNonce, authKey []byte, b byte) []byte {
-	authKeyAuxHash := make([]byte, len(newNonce))
-	copy(authKeyAuxHash, newNonce)
-	authKeyAuxHash = append(authKeyAuxHash, b)
+	// newNonce is 32 bytes, total buffer: 32 + 1 + 20 + 20 = 73
+	var buf [73]byte
+	copy(buf[:32], newNonce)
+	buf[32] = b
 	sha1D := sha1.Sum(authKey)
-	authKeyAuxHash = append(authKeyAuxHash, sha1D[:]...)
-	sha1E := sha1.Sum(authKeyAuxHash[:len(authKeyAuxHash)-12])
-	authKeyAuxHash = append(authKeyAuxHash, sha1E[:]...)
-	return authKeyAuxHash[len(authKeyAuxHash)-16:]
+	copy(buf[33:53], sha1D[:])
+	sha1E := sha1.Sum(buf[:41]) // 32 + 1 + 8 = 41 (total - 12 when using first 53 bytes)
+	copy(buf[53:], sha1E[:])
+	result := make([]byte, 16)
+	copy(result, buf[73-16:])
+	return result
 }
 
 func checkSha1(data []byte, maxPaddingLen int) bool {

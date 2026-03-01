@@ -21,6 +21,8 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
+const authSessionShardCount = 256
+
 type sessionData struct {
 	sessionId int64
 	connIds   map[int64]struct{}
@@ -31,15 +33,25 @@ type authSession struct {
 	sessionList map[int64]sessionData
 }
 
-type authSessionManager struct {
-	rw       sync.RWMutex
+type authSessionShard struct {
+	sync.RWMutex
 	sessions map[int64]*authSession
 }
 
+type authSessionManager struct {
+	shards [authSessionShardCount]authSessionShard
+}
+
 func NewAuthSessionManager() *authSessionManager {
-	return &authSessionManager{
-		sessions: make(map[int64]*authSession),
+	m := &authSessionManager{}
+	for i := range m.shards {
+		m.shards[i].sessions = make(map[int64]*authSession)
 	}
+	return m
+}
+
+func (m *authSessionManager) getShard(authKeyId int64) *authSessionShard {
+	return &m.shards[uint64(authKeyId)%authSessionShardCount]
 }
 
 func (m *authSessionManager) AddNewSession(authKey *authKeyUtil, sessionId int64, connId int64) (bNew bool) {
@@ -48,10 +60,11 @@ func (m *authSessionManager) AddNewSession(authKey *authKeyUtil, sessionId int64
 		sessionId,
 		connId)
 
-	m.rw.Lock()
-	defer m.rw.Unlock()
+	shard := m.getShard(authKey.AuthKeyId())
+	shard.Lock()
+	defer shard.Unlock()
 
-	if v, ok := m.sessions[authKey.AuthKeyId()]; ok {
+	if v, ok := shard.sessions[authKey.AuthKeyId()]; ok {
 		if v2, ok2 := v.sessionList[sessionId]; ok2 {
 			if _, exists := v2.connIds[connId]; !exists {
 				v2.connIds[connId] = struct{}{}
@@ -70,7 +83,7 @@ func (m *authSessionManager) AddNewSession(authKey *authKeyUtil, sessionId int64
 			connIds:   map[int64]struct{}{connId: {}},
 		}
 
-		m.sessions[authKey.AuthKeyId()] = &authSession{
+		shard.sessions[authKey.AuthKeyId()] = &authSession{
 			authKey: authKey,
 			sessionList: map[int64]sessionData{
 				sessionId: s,
@@ -87,10 +100,11 @@ func (m *authSessionManager) RemoveSession(authKeyId, sessionId int64, connId in
 		sessionId,
 		connId)
 
-	m.rw.Lock()
-	defer m.rw.Unlock()
+	shard := m.getShard(authKeyId)
+	shard.Lock()
+	defer shard.Unlock()
 
-	if v, ok := m.sessions[authKeyId]; ok {
+	if v, ok := shard.sessions[authKeyId]; ok {
 		if v2, ok2 := v.sessionList[sessionId]; ok2 {
 			delete(v2.connIds, connId)
 			if len(v2.connIds) == 0 {
@@ -98,7 +112,7 @@ func (m *authSessionManager) RemoveSession(authKeyId, sessionId int64, connId in
 				bDeleted = true
 			}
 			if len(v.sessionList) == 0 {
-				delete(m.sessions, authKeyId)
+				delete(shard.sessions, authKeyId)
 			}
 		}
 	}
@@ -107,10 +121,11 @@ func (m *authSessionManager) RemoveSession(authKeyId, sessionId int64, connId in
 }
 
 func (m *authSessionManager) FoundSessionConnId(authKeyId, sessionId int64) (*authKeyUtil, []int64) {
-	m.rw.RLock()
-	defer m.rw.RUnlock()
+	shard := m.getShard(authKeyId)
+	shard.RLock()
+	defer shard.RUnlock()
 
-	if v, ok := m.sessions[authKeyId]; ok {
+	if v, ok := shard.sessions[authKeyId]; ok {
 		if v2, ok2 := v.sessionList[sessionId]; ok2 {
 			connIdList := make([]int64, 0, len(v2.connIds))
 			for id := range v2.connIds {

@@ -46,27 +46,21 @@ func (c *FullCodec) Encode(conn CodecWriter, msg interface{}) ([]byte, error) {
 	rawMsg, ok := msg.(*mtproto.MTPRawMessage)
 	if !ok {
 		err := fmt.Errorf("msg type error, only MTPRawMessage, msg: {%v}", msg)
-		// log.Error(err.Error())
 		return nil, err
 	}
 
-	b := rawMsg.Payload
+	payload := rawMsg.Payload
+	size := len(payload) / 4
 
-	sb := make([]byte, 8)
-	// minus padding
-	size := len(b) / 4
-
-	binary.LittleEndian.PutUint32(sb, uint32(size))
+	buf := make([]byte, 8+len(payload)+4)
+	binary.LittleEndian.PutUint32(buf, uint32(size))
 	// TODO(@benqi): gen seq_num
-	var seqNum uint32 = 0
-	binary.LittleEndian.PutUint32(sb[4:], seqNum)
-	b = append(sb, b...)
-	var crc32Buf = make([]byte, 4)
-	var crc32 uint32 = 0
-	binary.LittleEndian.PutUint32(crc32Buf, crc32)
-	b = append(sb, crc32Buf...)
+	binary.LittleEndian.PutUint32(buf[4:], 0) // seqNum
+	copy(buf[8:], payload)
+	// TODO(@benqi): compute CRC32
+	binary.LittleEndian.PutUint32(buf[8+len(payload):], 0) // crc32
 
-	return b, nil
+	return buf, nil
 }
 
 // Decode decodes frames from TCP stream via specific implementation.

@@ -23,7 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
-	"strings"
+	"net"
 	"time"
 
 	"github.com/teamgram/proto/mtproto"
@@ -101,7 +101,11 @@ func (s *Server) OnOpen(c gnet.Conn) (out []byte, action gnet.Action) {
 	logx.Debugf("onNewConn - conn(%s)", c)
 
 	ctx := newConnContext()
-	ctx.setClientIp(strings.Split(c.RemoteAddr().String(), ":")[0])
+	if host, _, err := net.SplitHostPort(c.RemoteAddr().String()); err == nil {
+		ctx.setClientIp(host)
+	} else {
+		ctx.setClientIp(c.RemoteAddr().String())
+	}
 	ctx.ppv1 = s.c.Gnetway.IsProxyProtocolV1(c.LocalAddr().String())
 	ctx.tcp = s.c.Gnetway.IsTcp(c.LocalAddr().String())
 	ctx.websocket = s.c.Gnetway.IsWebsocket(c.LocalAddr().String())
@@ -193,7 +197,11 @@ func (s *Server) OnTraffic(c gnet.Conn) (action gnet.Action) {
 					return
 				}
 			}
-			ctx.setClientIp(strings.Split(h.Source.String(), ":")[0])
+			if host, _, err := net.SplitHostPort(h.Source.String()); err == nil {
+				ctx.setClientIp(host)
+			} else {
+				ctx.setClientIp(h.Source.String())
+			}
 			_, _ = c.Discard(len(ppv1) - r.Len())
 			ctx.ppv1 = false
 
