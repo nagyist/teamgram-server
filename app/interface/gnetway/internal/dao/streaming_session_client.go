@@ -322,6 +322,17 @@ func (d *StreamingSessionDispatcher) getNodeStream(permAuthKeyId int64) (*sessio
 	return ns, nil
 }
 
+func (d *StreamingSessionDispatcher) SendHttpData(ctx context.Context, authKeyId int64, in *session.TLSessionSendHttpDataToSession) (*session.HttpSessionData, error) {
+	ns, err := d.getNodeStream(authKeyId)
+	if err != nil {
+		return nil, err
+	}
+
+	// The stream protocol does not support SendHttpData, so use unary RPC via the node's connection.
+	client := session.NewRPCSessionClient(ns.conn)
+	return client.SessionSendHttpDataToSession(ctx, in)
+}
+
 func (d *StreamingSessionDispatcher) SendData(ctx context.Context, permAuthKeyId int64, in *session.TLSessionSendDataToSession) error {
 	ns, err := d.getNodeStream(permAuthKeyId)
 	if err != nil {

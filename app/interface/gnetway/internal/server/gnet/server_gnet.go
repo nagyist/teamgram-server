@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/teamgram/proto/mtproto"
+	httpcodec "github.com/teamgram/teamgram-server/app/interface/gnetway/internal/server/gnet/http"
 	"github.com/teamgram/teamgram-server/app/interface/gnetway/internal/server/gnet/pp"
 	"github.com/teamgram/teamgram-server/app/interface/gnetway/internal/server/gnet/ws"
 	"github.com/teamgram/teamgram-server/app/interface/session/session"
@@ -110,16 +111,24 @@ func (s *Server) OnOpen(c gnet.Conn) (out []byte, action gnet.Action) {
 	ctx.ppv1 = s.c.Gnetway.IsProxyProtocolV1(c.LocalAddr().String())
 	ctx.tcp = s.c.Gnetway.IsTcp(c.LocalAddr().String())
 	ctx.websocket = s.c.Gnetway.IsWebsocket(c.LocalAddr().String())
+	ctx.http = s.c.Gnetway.IsHttp(c.LocalAddr().String())
 	if ctx.websocket {
 		ctx.wsCodec = new(ws.WsCodec)
 	}
-	ctx.closeDate = s.CachedNow() + 30
+	if ctx.http {
+		ctx.httpCodec = new(httpcodec.HttpCodec)
+		ctx.closeDate = s.CachedNow() + 60
+	} else {
+		ctx.closeDate = s.CachedNow() + 30
+	}
 	s.timeoutWheel.Add(c.ConnId(), ctx.closeDate)
 	c.SetContext(ctx)
 
 	proto := "tcp"
 	if ctx.websocket {
 		proto = "websocket"
+	} else if ctx.http {
+		proto = "http"
 	}
 	metricConnOpen.Inc(proto)
 
@@ -146,11 +155,18 @@ func (s *Server) OnClose(c gnet.Conn, err error) (action gnet.Action) {
 		proto := "tcp"
 		if ctx.websocket {
 			proto = "websocket"
+		} else if ctx.http {
+			proto = "http"
 		}
 		metricConnClose.Inc(proto)
 
 		c.SetContext(nil)
 	}()
+
+	// HTTP connections are transient - no persistent session to close
+	if ctx.http {
+		return
+	}
 
 	if ctx.authKey == nil || ctx.authKey.PermAuthKeyId() == 0 {
 		return
@@ -189,7 +205,11 @@ func (s *Server) OnClose(c gnet.Conn, err error) (action gnet.Action) {
 func (s *Server) OnTraffic(c gnet.Conn) (action gnet.Action) {
 	ctx := c.Context().(*connContext)
 	oldCloseDate := ctx.closeDate
-	ctx.closeDate = s.CachedNow() + 300 + rand.Int63()%10
+	if ctx.http {
+		ctx.closeDate = s.CachedNow() + 60 + rand.Int63()%10
+	} else {
+		ctx.closeDate = s.CachedNow() + 300 + rand.Int63()%10
+	}
 	s.timeoutWheel.Move(c.ConnId(), oldCloseDate, ctx.closeDate)
 	if ctx.ppv1 {
 		ppv1, err := c.Peek(-1)
@@ -231,7 +251,9 @@ func (s *Server) OnTraffic(c gnet.Conn) (action gnet.Action) {
 		}
 	}
 
-	if ctx.websocket {
+	if ctx.http {
+		return s.onHttpData(ctx, c)
+	} else if ctx.websocket {
 		return s.onWebsocketData(ctx, c)
 	} else {
 		return s.onTcpData(ctx, c)

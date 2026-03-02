@@ -10,6 +10,7 @@ import (
 	"bytes"
 
 	"github.com/teamgram/teamgram-server/app/interface/gnetway/internal/server/gnet/codec"
+	httpcodec "github.com/teamgram/teamgram-server/app/interface/gnetway/internal/server/gnet/http"
 	"github.com/teamgram/teamgram-server/app/interface/gnetway/internal/server/gnet/ws"
 
 	"github.com/zeromicro/go-zero/core/jsonx"
@@ -41,7 +42,9 @@ type connContext struct {
 	clientIp   string
 	tcp        bool
 	websocket  bool
+	http       bool
 	wsCodec    *ws.WsCodec
+	httpCodec  *httpcodec.HttpCodec
 	logx.Logger
 	newSession bool
 	nextSeqNo  int32

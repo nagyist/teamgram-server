@@ -20,6 +20,7 @@ import (
 // StreamingSessionDispatcher uses bidirectional gRPC streams.
 type SessionDispatcher interface {
 	SendData(ctx context.Context, permAuthKeyId int64, in *session.TLSessionSendDataToSession) error
+	SendHttpData(ctx context.Context, authKeyId int64, in *session.TLSessionSendHttpDataToSession) (*session.HttpSessionData, error)
 	CloseSession(ctx context.Context, permAuthKeyId int64, in *session.TLSessionCloseSession) error
 	QueryAuthKey(ctx context.Context, authKeyId int64, in *session.TLSessionQueryAuthKey) (*mtproto.AuthKeyInfo, error)
 	Close()
@@ -41,6 +42,17 @@ func (d *UnarySessionDispatcher) SendData(ctx context.Context, permAuthKeyId int
 			_, err := client.SessionSendDataToSession(ctx, in)
 			return err
 		})
+}
+
+func (d *UnarySessionDispatcher) SendHttpData(ctx context.Context, authKeyId int64, in *session.TLSessionSendHttpDataToSession) (*session.HttpSessionData, error) {
+	var result *session.HttpSessionData
+	err := d.client.InvokeByKey(
+		strconv.FormatInt(authKeyId, 10),
+		func(client sessionclient.SessionClient) (err error) {
+			result, err = client.SessionSendHttpDataToSession(ctx, in)
+			return
+		})
+	return result, err
 }
 
 func (d *UnarySessionDispatcher) CloseSession(ctx context.Context, permAuthKeyId int64, in *session.TLSessionCloseSession) error {
