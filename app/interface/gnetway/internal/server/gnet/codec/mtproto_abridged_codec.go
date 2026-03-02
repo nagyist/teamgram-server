@@ -129,7 +129,6 @@ func (c *AbridgedCodec) Decode(conn CodecReader) (bool, []byte, error) {
 			payloads which were quick ACKed, as well as replies/errors for methods and constructors, as usual.
 		*/
 		needAck = c.packetLen[0]>>7 == 1
-		_ = needAck
 
 		n = int(c.packetLen[0] & 0x7f)
 		if n < 0x7f {

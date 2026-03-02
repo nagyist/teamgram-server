@@ -46,6 +46,7 @@ type Server struct {
 	svcCtx         *svc.ServiceContext
 	tickNumber     int64
 	cachedNow      atomic.Int64 // cached unix timestamp, updated every OnTick
+	timeoutWheel   *timeoutWheel
 }
 
 // CachedNow returns the cached unix timestamp (updated every OnTick interval).
@@ -63,6 +64,7 @@ func New(svcCtx *svc.ServiceContext, c config.Config) *Server {
 	)
 
 	s.authSessionMgr = NewAuthSessionManager()
+	s.timeoutWheel = newTimeoutWheel()
 
 	s.handshake = mustNewHandshake(c.RSAKey)
 

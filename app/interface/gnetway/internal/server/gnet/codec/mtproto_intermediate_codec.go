@@ -83,8 +83,7 @@ func (c *IntermediateCodec) Decode(conn CodecReader) (bool, []byte, error) {
 	}
 
 	needAck := c.packetLen>>31 == 1
-	_ = needAck
-	n = int(c.packetLen & 0xffffff)
+	n = int(c.packetLen & 0x7fffffff)
 	if n > MAX_MTPRORO_FRAME_SIZE {
 		// TODO(@benqi): close conn
 		return false, nil, fmt.Errorf("too large data(%d)", n)
@@ -100,5 +99,5 @@ func (c *IntermediateCodec) Decode(conn CodecReader) (bool, []byte, error) {
 	// message := mtproto.NewMTPRawMessage(int64(binary.LittleEndian.Uint64(buf)), 0, TRANSPORT_TCP)
 	// _ = message.Decode(buf)
 
-	return false, buf, nil
+	return needAck, buf, nil
 }

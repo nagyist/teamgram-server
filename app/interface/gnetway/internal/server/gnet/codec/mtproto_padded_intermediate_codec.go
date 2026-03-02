@@ -87,15 +87,14 @@ func (c *PaddedIntermediateCodec) Decode(conn CodecReader) (bool, []byte, error)
 		if buf, err = in.readN(4); err != nil {
 			return false, nil, ErrUnexpectedEOF
 		}
-		_, _ = conn.Discard(1)
+		_, _ = conn.Discard(4)
 		buf = c.Decrypt(buf)
 		c.packetLen = binary.LittleEndian.Uint32(buf)
 		c.state = WAIT_PACKET
 	}
 
 	needAck = c.packetLen>>31 == 1
-	_ = needAck
-	n = int(c.packetLen & 0xffffff)
+	n = int(c.packetLen & 0x7fffffff)
 	if n > MAX_MTPRORO_FRAME_SIZE {
 		// TODO(@benqi): close conn
 		return false, nil, fmt.Errorf("too large data(%d)", n)

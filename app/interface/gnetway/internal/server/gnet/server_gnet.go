@@ -18,6 +18,7 @@ package gnet
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -113,7 +114,14 @@ func (s *Server) OnOpen(c gnet.Conn) (out []byte, action gnet.Action) {
 		ctx.wsCodec = new(ws.WsCodec)
 	}
 	ctx.closeDate = s.CachedNow() + 30
+	s.timeoutWheel.Add(c.ConnId(), ctx.closeDate)
 	c.SetContext(ctx)
+
+	proto := "tcp"
+	if ctx.websocket {
+		proto = "websocket"
+	}
+	metricConnOpen.Inc(proto)
 
 	return
 }
@@ -129,10 +137,17 @@ func (s *Server) OnClose(c gnet.Conn, err error) (action gnet.Action) {
 	}
 
 	defer func() {
+		s.timeoutWheel.Remove(c.ConnId(), ctx.closeDate)
 		if ctx.wsCodec != nil {
 			ctx.wsCodec.Conn.Release()
 			ctx.wsCodec = nil
 		}
+
+		proto := "tcp"
+		if ctx.websocket {
+			proto = "websocket"
+		}
+		metricConnClose.Inc(proto)
 
 		c.SetContext(nil)
 	}()
@@ -173,7 +188,9 @@ func (s *Server) OnClose(c gnet.Conn, err error) (action gnet.Action) {
 // OnTraffic fires when a local socket receives data from the peer.
 func (s *Server) OnTraffic(c gnet.Conn) (action gnet.Action) {
 	ctx := c.Context().(*connContext)
+	oldCloseDate := ctx.closeDate
 	ctx.closeDate = s.CachedNow() + 300 + rand.Int63()%10
+	s.timeoutWheel.Move(c.ConnId(), oldCloseDate, ctx.closeDate)
 	if ctx.ppv1 {
 		ppv1, err := c.Peek(-1)
 		if err != nil {
@@ -232,26 +249,62 @@ func (s *Server) OnTick() (delay time.Duration, action gnet.Action) {
 	now := time.Now().Unix()
 	s.cachedNow.Store(now)
 
-	s.eng.Iterate(func(c gnet.Conn) {
-		ctx, _ := c.Context().(*connContext)
-		if ctx == nil {
-			return
-		}
-		if now >= ctx.closeDate {
-			logx.Errorf("close conn(%s) by timeout", c)
-			_ = c.Close()
-		}
-	})
+	// Use time wheel to expire only connections in the current slot
+	// instead of iterating all connections.
+	expiredConnIds := s.timeoutWheel.ExpireSlot(now)
+	for _, connId := range expiredConnIds {
+		s.eng.Trigger(connId, func(c gnet.Conn) {
+			ctx, _ := c.Context().(*connContext)
+			if ctx == nil {
+				return
+			}
+			if now >= ctx.closeDate {
+				logx.Errorf("close conn(%s) by timeout", c)
+				metricConnTimeout.Inc()
+				_ = c.Close()
+			} else {
+				// Connection was refreshed but still in old slot; re-add to new slot
+				s.timeoutWheel.Add(connId, ctx.closeDate)
+			}
+		})
+	}
 	return
+}
+
+// computeQuickAckToken computes the Quick ACK token per MTProto spec:
+// first 32 bits of SHA256(authKey[88:88+32] + encrypted_data) | 0x80000000
+func computeQuickAckToken(authKey []byte, encryptedData []byte) uint32 {
+	h := sha256.New()
+	h.Write(authKey[88 : 88+32])
+	h.Write(encryptedData)
+	var sum [32]byte
+	h.Sum(sum[:0])
+	return binary.LittleEndian.Uint32(sum[:4]) | 0x80000000
 }
 
 func (s *Server) onEncryptedMessage(c gnet.Conn, ctx *connContext, authKey *authKeyUtil, needAck bool, mmsg []byte) error {
 	since := timex.Now()
+	defer func() {
+		metricMsgProcess.ObserveFloat(timex.Since(since).Seconds()*1000, "encrypted")
+	}()
 
 	mtpRwaData, err := authKey.AesIgeDecrypt(mmsg[8:8+16], mmsg[24:])
 	if err != nil {
 		logx.Errorf("conn(%s) decrypt data(%d) error: {%v}, payload: %s", c, len(mmsg)-24, err, hex.EncodeToString(mmsg))
 		return err
+	}
+
+	// Send Quick ACK if requested by client
+	if needAck {
+		ackToken := computeQuickAckToken(authKey.AuthKey(), mmsg[24:])
+		var ackBuf [4]byte
+		binary.LittleEndian.PutUint32(ackBuf[:], ackToken)
+		if ctx.websocket {
+			_ = wsutil.WriteServerBinary(c, ackBuf[:])
+		} else {
+			_, _ = c.Write(ackBuf[:])
+		}
+		metricQuickAck.Inc()
 	}
 
 	var (
@@ -383,8 +436,10 @@ func (s *Server) onMTPRawMessage(ctx *connContext, c gnet.Conn, authKeyId int64,
 		out, err := s.onHandshake(c, msg2)
 		if err != nil {
 			logx.Errorf("conn(%s) onHandshake - error: %v", c, err)
+			metricHandshake.Inc("error")
 			action = gnet.Close
 		} else if out != nil {
+			metricHandshake.Inc("ok")
 			_ = UnThreadSafeWrite(c, out)
 		}
 	} else {
